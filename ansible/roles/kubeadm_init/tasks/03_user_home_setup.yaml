@@ -1,0 +1,15 @@
+- name: ubuntu user kubeconfig setup
+  become: true
+  block:
+    - name: Make sure .kube directory exists
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: 0700
+
+    - name: Copy kubeconfig to ubuntu home
+      shell: |
+        cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+        chown ubuntu:ubuntu /home/ubuntu/.kube/config

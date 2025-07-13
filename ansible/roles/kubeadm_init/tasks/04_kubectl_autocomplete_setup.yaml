@@ -1,0 +1,36 @@
+# kubectl bash completion 및 alias 설정
+- name: bash-completion 패키지 설치
+  become: true
+  apt:
+    name: bash-completion
+    state: present
+
+- name: 현재 사용자에 kubectl bash 자동완성 적용
+  become: false
+  shell: "echo 'source <(kubectl completion bash)' >> ~/.bashrc"
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+- name: 현재 셸에 kubectl 자동완성 적용 (즉시 반영)
+  become: false
+  shell: "source <(kubectl completion bash)"
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+- name: ~/.bashrc에 kubectl 별칭 'k' 추가
+  become: false
+  lineinfile:
+    path: ~/.bashrc
+    line: "alias k=kubectl"
+    create: yes
+
+- name: ~/.bashrc에 'k' 별칭 자동완성 추가
+  become: false
+  lineinfile:
+    path: ~/.bashrc
+    line: "complete -o default -F __start_kubectl k"
+    create: yes

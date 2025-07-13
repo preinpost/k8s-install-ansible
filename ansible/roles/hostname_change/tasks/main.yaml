@@ -1,0 +1,13 @@
+- name: Linux hostname 변경
+  become: true
+  ansible.builtin.hostname:
+    name: "{{ hostvars[inventory_hostname].hostname }}"
+
+- name: /etc/hosts 파일 hostname 변경
+  become: true
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^127.0.1.1\s+'
+    line: "127.0.1.1 {{ hostvars[inventory_hostname].hostname }}"
+    state: present
+    backup: true

@@ -1,0 +1,13 @@
+- name: Install Kubernetes Control Plane
+  block:
+    - name: kubeadm config 생성
+      import_tasks: 01_gen_kubeadm_config.yaml
+
+    - name: kubeadm init 실행
+      import_tasks: 02_kubeadm_init.yaml
+
+    - name: ubuntu user home에 admin.conf 복사
+      import_tasks: 03_user_home_setup.yaml
+    
+    - name: kubectl auto complete 설정
+      import_tasks: 04_kubectl_autocomplete_setup.yaml

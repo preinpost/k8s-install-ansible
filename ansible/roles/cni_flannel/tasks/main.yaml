@@ -1,0 +1,13 @@
+- name: flannel CNI 설치
+  block:
+    - name: /tmp에 kube-flannel.yml 파일 다운로드
+      become: false
+      shell: curl -L https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml -o /tmp/kube-flannel.yml
+
+    - name: /tmp/kube-flannel.yml의 네트워크 대역을 192.168.0.0/16으로 변경
+      become: false
+      shell: sed -i 's/10.244.0.0\/16/192.168.0.0\/16/g' /tmp/kube-flannel.yml
+
+    - name: /tmp/kube-flannel.yml 파일을 클러스터에 적용
+      become: false
+      shell: kubectl apply -f /tmp/kube-flannel.yml

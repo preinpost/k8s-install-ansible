@@ -1,0 +1,5 @@
+- name: kubeadm init
+  become: true
+  shell: kubeadm init --config=/tmp/kubeadm-config.yaml
+  args:
+    creates: /etc/kubernetes/admin.conf

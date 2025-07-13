@@ -1,0 +1,27 @@
+- name: Hostname Change
+  hosts: k8s_group
+  roles:
+    - roles/hostname_change
+
+- name: Install Common Components
+  hosts: k8s_group
+  roles:
+    - roles/install_k8s_components
+
+
+- name: ControlPlane Init
+  hosts: controlplane_1
+  roles:
+    - roles/kubeadm_init
+
+
+- name: CNI Install (Flannel)
+  hosts: controlplane_1
+  roles:
+    - roles/cni_flannel
+
+
+- name: Worker Join
+  hosts: worker_group
+  roles:
+    - roles/worker_join

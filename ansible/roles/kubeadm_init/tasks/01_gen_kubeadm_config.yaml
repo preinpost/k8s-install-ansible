@@ -1,0 +1,13 @@
+- name: kubeadm용 커스텀 config 파일 생성
+  become: true
+  copy:
+    dest: /tmp/kubeadm-config.yaml
+    content: |
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: ClusterConfiguration
+
+      kubernetesVersion: "{{ k8s_install_version_semver }}"
+      controlPlaneEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}"
+
+      networking:
+        podSubnet: "192.168.0.0/16"

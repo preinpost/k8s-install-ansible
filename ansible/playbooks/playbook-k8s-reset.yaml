@@ -1,0 +1,4 @@
+- name: kubeadm reset
+  hosts: k8s_group
+  roles:
+    - roles/kubeadm_reset

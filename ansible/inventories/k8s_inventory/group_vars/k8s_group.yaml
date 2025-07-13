@@ -1,0 +1,7 @@
+k8s_install_version: "v1.33"
+k8s_patch_version: "2"
+k8s_install_version_semver: "{{ k8s_install_version }}.{{ k8s_patch_version }}"
+
+kubeadm_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"
+kubelet_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"
+kubectl_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"

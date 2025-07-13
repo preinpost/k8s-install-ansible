@@ -1,0 +1,7 @@
+- name: Install Kubernetes Common
+  block:
+    - name: common install
+      import_tasks: 01_install_common.yaml
+
+    - name: containerd config 설정
+      import_tasks: 02_containerd_config.yaml

@@ -1,0 +1,116 @@
+- name: Reset Kubernetes cluster on all master and worker nodes
+  become: true
+  block:
+    - name: Reset kubeadm
+      command: kubeadm reset --force
+      ignore_errors: true
+
+    - name: Remove CNI network config
+      file:
+        path: /etc/cni/net.d
+        state: absent
+      ignore_errors: true
+
+    - name: Remove kube admin config
+      file:
+        path: /etc/kubernetes/admin.conf
+        state: absent
+      ignore_errors: true
+
+    - name: Remove kube config
+      file:
+        path: ~/.kube
+        state: absent
+      ignore_errors: true
+
+    - name: Flush iptables
+      command: iptables -F
+      ignore_errors: true
+
+    - name: Delete docker0 bridge if exists
+      command: ip link delete docker0
+      ignore_errors: true
+
+    - name: Restart containerd if present
+      service:
+        name: containerd
+        state: restarted
+      ignore_errors: true
+
+    - name: Restart docker if present
+      service:
+        name: docker
+        state: restarted
+      ignore_errors: true
+
+    - name: Remove kubelet data
+      file:
+        path: /var/lib/kubelet
+        state: absent
+      ignore_errors: true
+
+    - name: Remove etcd data
+      file:
+        path: /var/lib/etcd
+        state: absent
+      ignore_errors: true
+
+    - name: Remove calico data
+      file:
+        path: /var/lib/calico
+        state: absent
+      ignore_errors: true
+
+    - name: Remove calico run data
+      file:
+        path: /var/run/calico
+        state: absent
+      ignore_errors: true
+
+    - name: Remove CNI state
+      file:
+        path: /var/lib/cni
+        state: absent
+      ignore_errors: true
+
+    - name: Remove CNI binaries
+      file:
+        path: /opt/cni/bin
+        state: absent
+      ignore_errors: true
+
+    - name: Remove containerd data
+      file:
+        path: /var/lib/containerd
+        state: absent
+      ignore_errors: true
+
+    - name: Remove docker data
+      file:
+        path: /var/lib/docker
+        state: absent
+      ignore_errors: true
+
+    - name: Remove Kubernetes PKI
+      file:
+        path: /etc/kubernetes/pki
+        state: absent
+      ignore_errors: true
+
+    - name: Remove Kubernetes manifests
+      file:
+        path: /etc/kubernetes/manifests
+        state: absent
+      ignore_errors: true
+
+    - name: Remove controller-manager.conf
+      file:
+        path: /etc/kubernetes/controller-manager.conf
+        state: absent
+      ignore_errors: true
+
+    - name: Remove scheduler.conf
+      file:
+        path: /etc/kubernetes/scheduler.conf
+        state: absent
+      ignore_errors: true

@@ -1,0 +1,73 @@
+- name: 워커 노드 kubeadm join 전체 작업
+  block:
+    - name: kubeadm join 명령어 생성
+      become: true
+      shell: kubeadm token create --print-join-command
+      register: join_cmd
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      run_once: true
+
+    - name: 워커에 join 명령어 파일 배포
+      become: true
+      copy:
+        content: "{{ join_cmd.stdout }}"
+        dest: /tmp/k8s_join_cmd.sh
+        mode: '0755'
+
+    - block:
+        - name: 워커에서 join 명령어 실행 (1차)
+          become: true
+          shell: bash /tmp/k8s_join_cmd.sh
+      rescue:
+        - name: join 실패 시 kubeadm reset 실행
+          become: true
+          shell: kubeadm reset -f
+          ignore_errors: true
+        - name: join 명령어 파일 재배포
+          become: true
+          copy:
+            content: "{{ join_cmd.stdout }}"
+            dest: /tmp/k8s_join_cmd.sh
+            mode: '0755'
+        - name: 워커에서 join 명령어 실행 (2차)
+          become: true
+          shell: bash /tmp/k8s_join_cmd.sh
+
+    - name: 워커 노드가 Ready 또는 NotReady 상태가 될 때까지 대기
+      become: false
+      shell: kubectl get node {{ ansible_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      register: node_status
+      until: node_status.stdout == "True" or node_status.stdout == "False"
+      retries: 30
+      delay: 10
+
+    - name: 워커 노드에 worker 역할 라벨 추가
+      become: false
+      shell: kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/worker=worker --overwrite
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+
+    - name: 워커 노드 상태 확인
+      become: false
+      shell: kubectl get node {{ ansible_hostname }}
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      register: worker_node_status
+
+    - name: 워커 노드 상태 출력
+      debug:
+        msg: "{{ worker_node_status.stdout }}"
+
+    - name: 마스터의 join 명령어 파일 삭제
+      become: true
+      file:
+        path: /tmp/k8s_join_cmd.sh
+        state: absent
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      run_once: true
+
+    - name: 워커의 join 명령어 파일 삭제
+      become: true
+      file:
+        path: /tmp/k8s_join_cmd.sh
+        state: absent
+      ignore_errors: true
