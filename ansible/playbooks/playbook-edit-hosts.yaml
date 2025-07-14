@@ -1,0 +1,11 @@
+- name: Generate SSH Key on Control Node
+  hosts: k8s_group
+  gather_facts: false
+  tasks:
+    - name: /etc/hosts 파일 수정
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item]['ansible_host'] }} {{ hostvars[item]['hostname'] }}"
+        state: present
+        backup: true
+      loop: "{{ groups['controlplane_group'] }}"
