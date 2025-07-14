@@ -1,5 +1,5 @@
 - name: hosts 파일 수정
-  hosts: k8s_group
+  hosts: worker_group
   become: true
   gather_facts: false
   tasks:
