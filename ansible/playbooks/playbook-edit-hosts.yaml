@@ -1,5 +1,6 @@
-- name: Generate SSH Key on Control Node
+- name: hosts 파일 수정
   hosts: k8s_group
+  become: true
   gather_facts: false
   tasks:
     - name: /etc/hosts 파일 수정
