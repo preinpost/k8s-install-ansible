@@ -1,8 +1,3 @@
-- name: Hostname Change
-  hosts: k8s_group
-  roles:
-    - roles/hostname_change
-
 - name: Install Common Components
   hosts: k8s_group
   roles:
