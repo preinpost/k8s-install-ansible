@@ -10,10 +10,15 @@
     - roles/kubeadm_init
 
 
-- name: CNI Install (Flannel)
+# - name: CNI Install (Flannel)
+#   hosts: controlplane_1
+#   roles:
+#     - roles/cni_flannel
+
+- name: CNI Install (Calico)
   hosts: controlplane_1
   roles:
-    - roles/cni_flannel
+    - roles/cni_calico
 
 
 - name: Worker Join

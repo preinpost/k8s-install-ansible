@@ -8,13 +8,6 @@
   become: true
   gather_facts: false
   tasks:
-    - name: 자기 자신 hostname을 127.0.0.1에 매핑
-      lineinfile:
-        path: /etc/hosts
-        line: "127.0.0.1 {{ inventory_hostname }}"
-        state: present
-        backup: true
-
     - name: 모든 노드의 외부 IP와 hostname 매핑
       lineinfile:
         path: /etc/hosts
