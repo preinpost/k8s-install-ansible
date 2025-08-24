@@ -1,1 +1,2 @@
-# ansible_become_password: "ubuntu"
+ansible_become_password: "ubuntu"
+ansible_ssh_private_key_file: '~/.ssh/home-server.pub'
