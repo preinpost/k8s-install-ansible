@@ -1,3 +1,7 @@
+- name: vm 초기 설정
+  import_playbook: init/playbook-edit-vm.yaml
+
+
 - name: Install Common Components
   hosts: k8s_group
   roles:

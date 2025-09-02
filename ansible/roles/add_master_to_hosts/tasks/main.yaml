@@ -1,0 +1,9 @@
+- name: '마스터 노드를 /etc/hosts에 등록'
+  blockinfile:
+    path: /etc/hosts
+    block: |
+      {% for host in groups['controlplane_group'] %}
+      {{ hostvars[host]['ansible_host'] }} {{ hostvars[host]['hostname'] }}
+      {% endfor %}
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Controlplane hosts"
+    backup: yes

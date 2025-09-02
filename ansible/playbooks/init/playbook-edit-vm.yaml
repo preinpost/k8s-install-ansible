@@ -1,0 +1,10 @@
+- name: Hostname Change
+  hosts: k8s_group
+  roles:
+    - roles/hostname_change
+
+- name: hosts 파일 수정
+  hosts: k8s_group
+  become: true
+  roles:
+    - roles/add_master_to_hosts
