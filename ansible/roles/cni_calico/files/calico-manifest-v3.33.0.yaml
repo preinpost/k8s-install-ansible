@@ -10004,6 +10004,10 @@ spec:
               value: "false"
             - name: FELIX_HEALTHENABLED
               value: "true"
+
+            # tailscale과 같이 쓰기 위한 설정
+            - name: FELIX_IPTABLESMARKMASK
+              value: "0xff00ff00"
           securityContext:
             privileged: true
           resources:
