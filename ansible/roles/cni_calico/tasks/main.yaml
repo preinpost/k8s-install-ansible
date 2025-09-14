@@ -7,9 +7,9 @@
         
     - name: Calico manifest 파일 복사
       copy:
-        src: "{{ role_path }}/files/calico-manifest-v3.33.0.yaml"
-        dest: /tmp/calico-manifest-v3.33.0.yaml
+        src: "{{ role_path }}/files/{{ calico_manifest_name }}-{{ calico_manifest_version }}.yaml"
+        dest: /tmp/{{ calico_manifest_name }}-{{ calico_manifest_version }}.yaml
 
     - name: Calico CNI 적용
       command: >
-        kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /tmp/calico-manifest-v3.33.0.yaml
+        kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /tmp/{{ calico_manifest_name }}-{{ calico_manifest_version }}.yaml
