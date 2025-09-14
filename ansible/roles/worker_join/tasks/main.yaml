@@ -1,4 +1,5 @@
 - name: 워커 노드 kubeadm join 전체 작업
+  when: groups['worker_group'] is defined and groups['worker_group'] | length > 0
   block:
     - name: kubeadm join 명령어 생성
       become: true

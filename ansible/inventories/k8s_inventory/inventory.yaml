@@ -7,18 +7,18 @@ all:
     controlplane_group:
       hosts:
         controlplane_1:
-          ansible_host: '100.83.140.26'
+          ansible_host: '192.168.64.10'
           hostname: test-controlplane-1
           ansible_user: 'ubuntu'
           ansible_ssh_private_key_file: '~/.ssh/nhncloud-letomok.pub'
           # ansible_ssh_pass: 'ubuntu'
-    worker_group:
-      hosts:
-        worker_1:
-          ansible_host: '100.65.95.10'
-          hostname: test-worker-1
-          ansible_user: 'ubuntu'
-          ansible_ssh_private_key_file: '~/.ssh/nhncloud-letomok.pub'
+    # worker_group:
+    #   hosts:
+    #     worker_1:
+    #       ansible_host: '100.65.95.10'
+    #       hostname: test-worker-1
+    #       ansible_user: 'ubuntu'
+    #       ansible_ssh_private_key_file: '~/.ssh/nhncloud-letomok.pub'
           # ansible_ssh_pass: 'ubuntu'
         # worker_2:
         #   ansible_host: '10.0.15.9'

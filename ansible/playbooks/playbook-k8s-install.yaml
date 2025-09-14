@@ -29,4 +29,3 @@
   hosts: worker_group
   roles:
     - roles/worker_join
-  when: groups['worker_group'] is defined and groups['worker_group'] | length > 0
