@@ -1,0 +1,5 @@
+- name: Install Tailscale
+  hosts: k8s_group
+  gather_facts: true
+  roles:
+    - roles/install_tailscale
