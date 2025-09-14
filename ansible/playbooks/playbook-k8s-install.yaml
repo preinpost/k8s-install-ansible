@@ -2,6 +2,13 @@
   import_playbook: init/playbook-edit-vm.yaml
 
 
+- name: Install Tailscale
+  hosts: k8s_group
+  gather_facts: true
+  roles:
+    - roles/install_tailscale
+
+
 - name: Install Common Components
   hosts: k8s_group
   roles:
@@ -18,6 +25,7 @@
 #   hosts: controlplane_1
 #   roles:
 #     - roles/cni_flannel
+
 
 - name: CNI Install (Calico)
   hosts: controlplane_1

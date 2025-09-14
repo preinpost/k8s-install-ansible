@@ -1,0 +1,26 @@
+# Ansible specific
+*.retry
+.vault_pass
+secrets.yaml
+secret_vars.yaml
+
+# Environment files
+.env
+*/.env
+*/files/.env
+
+# Tailscale keys
+tailscale_keys.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -5,3 +5,5 @@ k8s_install_version_semver: "{{ k8s_install_version }}.{{ k8s_patch_version }}"
 kubeadm_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"
 kubelet_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"
 kubectl_version: "{{ k8s_install_version_semver | replace('v', '') }}-*"
+
+tailscale_enabled: true

@@ -1,0 +1,85 @@
+- name: tailscale 설치 (ubuntu)
+  become: true
+  when:
+    - tailscale_enabled | default(false) | bool
+    - ansible_facts['os_family'] == "Debian"
+    - ansible_facts['distribution'] == "Ubuntu"
+  block:
+    - name: .env 파일에서 tailscale auth key 로드
+      block:
+        - name: Tailscale auth key 초기화
+          ansible.builtin.set_fact:
+            tailscale_auth_key: ""
+
+
+        - name: debug role_path
+          debug:
+            msg: "role_path: {{ role_path }}"
+
+
+        - name: .env 파일에서 auth key 로드
+          ansible.builtin.set_fact:
+            tailscale_auth_key: "{{ lookup('file', role_path + '/files/.env') | regex_search('TAILSCALE_AUTH_KEY=(.+)', '\\1') | first | default('') }}"
+          
+
+        - name: .env 파일 읽기 결과 디버그
+          debug:
+            msg:
+              - "파일 존재: {{ env_file_content.content is defined }}"
+              - "파일 내용: {{ env_file_content.content | b64decode if env_file_content.content is defined else 'No content' }}"
+
+
+        - name: Tailscale auth key 설정
+          ansible.builtin.set_fact:
+            tailscale_auth_key: "{{ env_file_content.content | b64decode | regex_search('TAILSCALE_AUTH_KEY=(.+)') | regex_replace('TAILSCALE_AUTH_KEY=', '') | trim }}"
+          when: env_file_content.content is defined
+
+
+    - name: 로드된 설정 확인
+      debug:
+        msg: "Tailscale auth key loaded: {{ 'Yes' if tailscale_auth_key | length > 0 else 'No' }}"
+        
+
+    - name: Tailscale GPG Key 추가
+      ansible.builtin.apt_key:
+        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
+        state: present
+
+
+    - name: Tailscale APT 저장소 추가
+      ansible.builtin.apt_repository:
+        repo: deb https://pkgs.tailscale.com/stable/ubuntu {{ ansible_facts['distribution_release'] }} main
+        state: present
+        filename: tailscale.list
+
+
+    - name: APT 패키지 목록 업데이트
+      ansible.builtin.apt:
+        update_cache: yes
+
+
+    - name: Tailscale 설치
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+
+
+    - name: Tailscale 서비스 시작 및 부팅 시 자동 시작 설정
+      ansible.builtin.systemd:
+        name: tailscaled
+        state: started
+        enabled: yes
+
+
+    - name: Tailscale 네트워크 연결
+      ansible.builtin.command:
+        cmd: tailscale up --authkey={{ tailscale_auth_key }} --ssh
+      register: tailscale_up_result
+      failed_when: false
+      when: tailscale_auth_key | length > 0
+
+
+    - name: Tailscale 연결 결과 출력
+      debug:
+        var: tailscale_up_result
+      when: tailscale_auth_key | length > 0
