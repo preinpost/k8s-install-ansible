@@ -1,15 +1,15 @@
-- name: ubuntu user kubeconfig setup
+- name: user kubeconfig setup
   become: true
   block:
     - name: Make sure .kube directory exists
       file:
-        path: /home/ubuntu/.kube
+        path: /home/{{ ansible_user }}/.kube
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: 0700
 
-    - name: Copy kubeconfig to ubuntu home
+    - name: Copy kubeconfig to ansible_user home
       shell: |
-        cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
-        chown ubuntu:ubuntu /home/ubuntu/.kube/config
+        cp /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
+        chown {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube/config

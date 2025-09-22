@@ -1,38 +1,49 @@
 - name: 워커 노드 kubeadm join 전체 작업
   when: groups['worker_group'] is defined and groups['worker_group'] | length > 0
   block:
-    - name: kubeadm join 명령어 생성
+    - name: kubeadm join 토큰 생성
       become: true
-      shell: kubeadm token create --print-join-command
-      register: join_cmd
+      shell: kubeadm token create
+      register: join_token
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       run_once: true
 
-    - name: 워커에 join 명령어 파일 배포
+    - name: CA 인증서 해시 가져오기
+      become: true
+      shell: openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
+      register: ca_cert_hash
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      run_once: true
+
+    - name: kubeadm join용 config 파일 생성
       become: true
       copy:
-        content: "{{ join_cmd.stdout }}"
-        dest: /tmp/k8s_join_cmd.sh
-        mode: '0755'
+        dest: /tmp/kubeadm-join-config.yaml
+        content: |
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: JoinConfiguration
+          discovery:
+            bootstrapToken:
+              token: "{{ join_token.stdout }}"
+              apiServerEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}:6443"
+              caCertHashes:
+                - "sha256:{{ ca_cert_hash.stdout }}"
+          nodeRegistration:
+            kubeletExtraArgs:
+              node-ip: "{{ ansible_host }}"
 
     - block:
         - name: 워커에서 join 명령어 실행 (1차)
           become: true
-          shell: bash /tmp/k8s_join_cmd.sh
+          shell: kubeadm join --config /tmp/kubeadm-join-config.yaml
       rescue:
         - name: join 실패 시 kubeadm reset 실행
           become: true
           shell: kubeadm reset -f
           ignore_errors: true
-        - name: join 명령어 파일 재배포
-          become: true
-          copy:
-            content: "{{ join_cmd.stdout }}"
-            dest: /tmp/k8s_join_cmd.sh
-            mode: '0755'
         - name: 워커에서 join 명령어 실행 (2차)
           become: true
-          shell: bash /tmp/k8s_join_cmd.sh
+          shell: kubeadm join --config /tmp/kubeadm-join-config.yaml
 
     - name: 워커 노드가 Ready 또는 NotReady 상태가 될 때까지 대기
       become: false
@@ -58,17 +69,9 @@
       debug:
         msg: "{{ worker_node_status.stdout }}"
 
-    - name: 마스터의 join 명령어 파일 삭제
+    - name: 워커의 join config 파일 삭제
       become: true
       file:
-        path: /tmp/k8s_join_cmd.sh
-        state: absent
-      delegate_to: "{{ groups['controlplane_group'][0] }}"
-      run_once: true
-
-    - name: 워커의 join 명령어 파일 삭제
-      become: true
-      file:
-        path: /tmp/k8s_join_cmd.sh
+        path: /tmp/kubeadm-join-config.yaml
         state: absent
       ignore_errors: true
