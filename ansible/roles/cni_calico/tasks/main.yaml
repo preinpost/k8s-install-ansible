@@ -1,14 +1,25 @@
 - name: calico CNI 설치
   become: true
   block:
-    - name: role_path 출력
-      debug:
-        msg: "role_path: {{ role_path }}"
-        
+    - name: kubernetes-services-endpoint ConfigMap 생성
+      shell: |
+        kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f - << 'EOF'
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kubernetes-services-endpoint
+          namespace: kube-system
+        data:
+          KUBERNETES_SERVICE_HOST: "{{ hostvars[groups['controlplane_group'][0]]['hostname'] }}"
+          KUBERNETES_SERVICE_PORT: "6443"
+        EOF
+
+
     - name: Calico manifest 파일 복사
       copy:
         src: "{{ role_path }}/files/{{ calico_manifest_name }}-{{ calico_manifest_version }}.yaml"
         dest: /tmp/{{ calico_manifest_name }}-{{ calico_manifest_version }}.yaml
+
 
     - name: Calico CNI 적용
       command: >

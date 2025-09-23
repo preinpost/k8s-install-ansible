@@ -1,4 +1,4 @@
-- name: containerd config.toml 생성 (offline)
+- name: containerd config.toml 생성
   become: true
   copy:
     dest: /etc/containerd/config.toml

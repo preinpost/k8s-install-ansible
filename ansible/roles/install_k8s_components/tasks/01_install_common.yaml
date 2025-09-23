@@ -3,6 +3,7 @@
   apt:
     update_cache: yes
 
+
 - name: Install packages
   become: true
   apt:
@@ -20,10 +21,12 @@
   until: apt_result is succeeded
   register: apt_result
 
+
 - name: Get Ubuntu codename
   command: lsb_release -cs
   become: true
   register: ubuntu_codename
+
 
 - name: Ensure /etc/apt/keyrings directory exists
   become: true
@@ -32,6 +35,7 @@
     state: directory
     mode: '0755'
 
+
 - name: Download Docker GPG key
   become: true
   ansible.builtin.get_url:
@@ -39,11 +43,13 @@
     dest: /etc/apt/keyrings/docker.asc
     mode: '0644'
 
+
 - name: Set Docker architecture variable
   become: true
   set_fact:
     docker_arch: >-
       {% if ansible_architecture == 'x86_64' %}amd64{% elif ansible_architecture in ['aarch64', 'arm64'] %}arm64{% else %}{{ ansible_architecture | lower }}{% endif %}
+
 
 - name: Add Docker apt repository
   become: true
@@ -53,6 +59,7 @@
     state: present
     update_cache: yes
 
+
 - name: Download Kubernetes GPG key (ASCII armored)
   become: true
   ansible.builtin.get_url:
@@ -60,12 +67,14 @@
     dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
     mode: '0644'
 
+
 - name: Convert Kubernetes GPG key to dearmored format
   become: true
   shell: |
     gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /etc/apt/keyrings/kubernetes-apt-keyring.asc
   args:
     creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
 
 - name: Add Kubernetes apt repository
   become: true
@@ -75,12 +84,14 @@
     state: present
     update_cache: yes
 
+
 - name: Install containerd
   become: true
   apt:
     name: containerd.io
     state: present
     update_cache: yes
+
 
 - name: Enable and restart Containerd
   become: true
@@ -100,6 +111,7 @@
     state: present
     update_cache: yes
 
+
 - name: Hold Kubernetes packages at current version
   become: true
   apt:
@@ -116,10 +128,12 @@
     dpkg_options: "--force-confdef --force-confold"
   register: kubernetes_install
 
+
 - name: Mark Kubernetes packages on hold
   become: true
   shell: |
     apt-mark hold kubelet kubeadm kubectl
+
 
 - name: Swap 비활성화 및 fstab 주석 처리
   become: true
@@ -127,11 +141,13 @@
     - name: Disable swap
       command: swapoff -a
 
+
     - name: Remove swap entry from /etc/fstab
       replace:
         path: /etc/fstab
         regexp: '^([^#].*\\sswap\\s)'
         replace: '#\\1'
+
 
 - name: iptables 및 커널/시스템 설정
   become: true
@@ -139,8 +155,10 @@
     - name: br_netfilter 커널 모듈 로드
       shell: modprobe br_netfilter
 
+
     - name: br_netfilter 모듈 영구 적용
       shell: echo "br_netfilter" | tee /etc/modules-load.d/k8s.conf
+
 
     - name: k8s용 sysctl 설정 파일 생성
       copy:
@@ -149,20 +167,31 @@
           net.bridge.bridge-nf-call-ip6tables = 1
           net.bridge.bridge-nf-call-iptables = 1
 
+
     - name: net.ipv4.ip_forward=1 주석 해제
       lineinfile:
         path: /etc/sysctl.conf
         regexp: '^#net\.ipv4\.ip_forward=1'
         line: 'net.ipv4.ip_forward=1'
 
+
+    - name: net.ipv6.conf.all.forwarding=1 주석 해제
+      lineinfile:
+        path: /etc/sysctl.conf
+        regexp: '^#net\.ipv4\.ip_forward=1'
+        line: 'net.ipv6.conf.all.forwarding=1'
+
+
     - name: sysctl 설정 적용
       shell: sysctl --system
+
 
     - name: vm.max_map_count 설정 추가
       lineinfile:
         path: /etc/sysctl.conf
         line: 'vm.max_map_count=262144'
         insertafter: EOF
+
 
     - name: sysctl -p 적용
       shell: sysctl -p

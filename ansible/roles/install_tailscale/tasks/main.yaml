@@ -61,7 +61,7 @@
 
     - name: Tailscale 네트워크 연결
       ansible.builtin.command:
-        cmd: tailscale up --authkey={{ tailscale_auth_key }} --ssh
+        cmd: tailscale up --authkey={{ tailscale_auth_key }} --accept-routes --ssh
       register: tailscale_up_result
       failed_when: false
       when: tailscale_auth_key | length > 0
