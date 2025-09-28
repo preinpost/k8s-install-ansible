@@ -10002,10 +10002,10 @@ spec:
               value: "autodetect"
             # Enable IPIP
             - name: CALICO_IPV4POOL_IPIP
-              value: "Always"
+              value: "Never" # 여기 수정함
             # Enable or Disable VXLAN on the default IP pool.
             - name: CALICO_IPV4POOL_VXLAN
-              value: "Never"
+              value: "Always" # 여기 수정함
             # Enable or Disable VXLAN on the default IPv6 IP pool.
             - name: CALICO_IPV6POOL_VXLAN
               value: "Never"

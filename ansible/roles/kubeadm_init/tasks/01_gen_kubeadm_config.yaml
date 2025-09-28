@@ -11,6 +11,8 @@
       apiServer:
         extraArgs:
           advertise-address: "{{ hostvars[groups['controlplane_group'][0]].ansible_host }}"
-
+        certSANs:
+          - "{{ hostvars[groups['controlplane_group'][0]].hostname }}"
+          - "{{ hostvars[groups['controlplane_group'][0]].ansible_host }}"
       networking:
-        podSubnet: "192.168.0.0/16"
+        podSubnet: "172.16.0.0/16"
