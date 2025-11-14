@@ -1,2 +1,2 @@
 # TODO
-+ [ ] tailscale 설치 추가하기
++ [ x ] tailscale 설치 추가하기
