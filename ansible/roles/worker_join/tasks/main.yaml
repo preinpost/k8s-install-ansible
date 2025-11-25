@@ -56,12 +56,12 @@
 
     - name: 워커 노드에 worker 역할 라벨 추가
       become: false
-      shell: kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/worker=worker --overwrite
+      shell: kubectl label node {{ ansible_facts['hostname'] }} node-role.kubernetes.io/worker=worker --overwrite
       delegate_to: "{{ groups['controlplane_group'][0] }}"
 
     - name: 워커 노드 상태 확인
       become: false
-      shell: kubectl get node {{ ansible_hostname }}
+      shell: kubectl get node {{ ansible_facts['hostname'] }}
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       register: worker_node_status
 
