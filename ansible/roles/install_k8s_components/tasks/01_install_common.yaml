@@ -48,13 +48,13 @@
   become: true
   set_fact:
     docker_arch: >-
-      {% if ansible_architecture == 'x86_64' %}amd64{% elif ansible_architecture in ['aarch64', 'arm64'] %}arm64{% else %}{{ ansible_architecture | lower }}{% endif %}
+      {% if ansible_facts['architecture'] == 'x86_64' %}amd64{% elif ansible_facts['architecture'] in ['aarch64', 'arm64'] %}arm64{% else %}{{ ansible_facts['architecture'] | lower }}{% endif %}
 
 
 - name: Add Docker apt repository
   become: true
   ansible.builtin.apt_repository:
-    repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
     filename: "docker"
     state: present
     update_cache: yes
