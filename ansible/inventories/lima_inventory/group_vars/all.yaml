@@ -1,0 +1,2 @@
+# lima VM 은 NOPASSWD sudo 라 ansible_become_password 가 필요 없다.
+# (운영 인벤토리인 k8s_inventory/group_vars/all.yaml 과 달리 비밀번호를 두지 않는다)

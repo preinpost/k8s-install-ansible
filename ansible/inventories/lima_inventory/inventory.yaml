@@ -1,0 +1,50 @@
+# ------------------------------------------------------------------
+# 로컬 lima VM 테스트용 인벤토리  (gen-inventory.sh 로 생성됨 — 직접 수정 X)
+#
+#   limactl start --name=<cp1|w1|w2> template://ubuntu-24.04 \
+#     --vm-type vz --network lima:user-v2 \
+#     --cpus 2 --memory 4 --disk 20 --containerd none --mount-none -y
+#
+# lima:user-v2 네트워크는 VM <-> VM 통신만 되고 호스트에서 VM IP 로는
+# 직접 접근이 안 된다. 그래서
+#   - SSH    : 127.0.0.1 + lima 포워딩 포트 (ansible_host / ansible_port)
+#   - 노드 IP : 192.168.104.x (node_ip)
+# 로 분리해서 쓴다.
+#
+# 실행:
+#   ansible-playbook -i inventories/lima_inventory/inventory.yaml \
+#     playbooks/playbook-k8s-install.yaml
+# ------------------------------------------------------------------
+all:
+  vars:
+    ansible_host: 127.0.0.1
+    ansible_user: ms
+    ansible_ssh_private_key_file: '~/.lima/_config/user'
+    # lima VM 은 NOPASSWD sudo 라 become password 가 필요 없다
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes'
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    k8s_group:
+      children:
+        controlplane_group:
+        worker_group:
+
+    controlplane_group:
+      hosts:
+        cp1:
+          ansible_port: 58106
+          node_ip: 192.168.104.1
+          hostname: test-controlplane-1
+
+    worker_group:
+      hosts:
+        w1:
+          ansible_port: 58117
+          node_ip: 192.168.104.3
+          hostname: test-worker-1
+        w2:
+          ansible_port: 58128
+          node_ip: 192.168.104.4
+          hostname: test-worker-2
+
