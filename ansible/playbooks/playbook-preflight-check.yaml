@@ -1,0 +1,103 @@
+# 클러스터 구축 전 점검 (읽기 전용 - 어떤 것도 변경하지 않는다)
+#
+#   ansible-playbook -i inventories/baremetal_inventory/inventory.yaml \
+#     playbooks/playbook-preflight-check.yaml
+#
+- name: 설치 전 노드 점검
+  hosts: k8s_group
+  gather_facts: true
+  become: true
+  vars:
+    check_urls:
+      - https://pkgs.k8s.io
+      - https://download.docker.com
+      - https://registry.k8s.io
+      - https://quay.io
+  tasks:
+    - name: 노드 기본 정보
+      ansible.builtin.debug:
+        msg:
+          - "host      : {{ inventory_hostname }} ({{ ansible_facts['default_ipv4']['address'] | default('?') }})"
+          - "os        : {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }} / kernel {{ ansible_facts['kernel'] }}"
+          - "cpu/mem   : {{ ansible_facts['processor_vcpus'] }} vCPU / {{ ansible_facts['memtotal_mb'] }} MB"
+          - "swap      : {{ ansible_facts['swaptotal_mb'] }} MB {{ '<- 설치 시 비활성화됨' if ansible_facts['swaptotal_mb'] | int > 0 else '' }}"
+          - "nic       : {{ ansible_facts['interfaces'] | reject('match', '^(lo|docker|veth|br-|cali|tunl|vxlan)') | list }}"
+
+
+    - name: 상태 수집
+      ansible.builtin.shell: |
+        # systemctl is-active 는 unit 이 없어도 문자열을 찍고 rc!=0 이라
+        # '|| echo none' 을 붙이면 줄이 두 개로 쪼개진다. 변수로 받아서 처리한다.
+        st() { systemctl is-active "$1" 2>/dev/null | head -1; }
+        echo "[cgroup]        $(stat -fc %T /sys/fs/cgroup)"
+        echo "[docker]        active=$(st docker) containers=$(docker ps -q 2>/dev/null | wc -l | tr -d ' ')"
+        echo "[containerd]    active=$(st containerd) $(containerd --version 2>/dev/null || true)"
+        echo "[kubelet]       active=$(st kubelet) / $(ls -d /etc/kubernetes 2>/dev/null || echo '기존 k8s 없음')"
+        echo "[NetworkManager] active=$(st NetworkManager)"
+        echo "[ufw]           $(ufw status 2>/dev/null | head -1 || echo 'ufw 없음')"
+        echo "[ntp]           $(timedatectl show -p NTPSynchronized --value 2>/dev/null) ($(date))"
+        echo "[disk /]        $(df -h / | awk 'NR==2{print $4" free / "$2}')"
+        echo "[disk /var]     $(df -h /var | awk 'NR==2{print $4" free / "$2}')"
+        # 설정된 대역과 겹치는 라우트가 이미 있는지 확인한다.
+        #   to match : 해당 대역을 포함하는(더 넓은) 라우트
+        #   to root  : 해당 대역 안에 들어있는(더 좀은) 라우트
+        chk_route() {
+          { ip route show to match "$1"; ip route show to root "$1"; } 2>/dev/null \
+            | grep -v '^default' | sort -u
+        }
+        pod_rt=$(chk_route {{ k8s_pod_subnet }})
+        svc_rt=$(chk_route {{ k8s_service_subnet }})
+        echo "[route-pod]     {{ k8s_pod_subnet }} count=$(printf '%s' "$pod_rt" | grep -c .) $(printf '%s' "$pod_rt" | tr '\n' ';')"
+        echo "[route-svc]     {{ k8s_service_subnet }} count=$(printf '%s' "$svc_rt" | grep -c .) $(printf '%s' "$svc_rt" | tr '\n' ';')"
+      args:
+        executable: /bin/bash
+      register: node_report
+      changed_when: false
+
+
+    - name: 상태 출력
+      ansible.builtin.debug:
+        msg: "{{ node_report.stdout_lines }}"
+
+
+    - name: 외부 저장소/레지스트리 접근 확인
+      ansible.builtin.command: "curl -sS -o /dev/null -m 10 -w '%{http_code}' -L {{ item }}"
+      loop: "{{ check_urls }}"
+      register: url_check
+      changed_when: false
+      failed_when: false
+
+
+    - name: 접근 결과 출력
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item }} -> {{ 'rc=' ~ item.rc ~ ' (접근 실패 - 프록시 필요 여부 확인)'
+             if item.rc != 0 else 'HTTP ' ~ item.stdout }}
+      loop: "{{ url_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+
+    # 아래 항목들은 실패시키지 않고 경고만 남긴다. 판단은 사람이 한다.
+    - name: 주의 항목 정리
+      ansible.builtin.debug:
+        msg: "{{ warnings if warnings | length > 0 else ['특이사항 없음'] }}"
+      vars:
+        warnings: >-
+          {{
+            ([] if 'active=inactive' in (node_report.stdout | regex_search('\[docker\].*') | default('', true))
+                or 'active=none' in (node_report.stdout | regex_search('\[docker\].*') | default('', true))
+                else ['docker 가 동작 중이다. containerd 설정 덮어쓰기 + 재시작으로 기존 컨테이너가 중단된다.'])
+            + ([] if '[route-pod]' in node_report.stdout and 'count=0' in (node_report.stdout | regex_search('\[route-pod\].*') | default('', true))
+                else ['podSubnet(' ~ k8s_pod_subnet ~ ') 와 겹치는 라우트가 있다. (이미 클러스터가 깔려 있으면 정상)'])
+            + ([] if '[route-svc]' in node_report.stdout and 'count=0' in (node_report.stdout | regex_search('\[route-svc\].*') | default('', true))
+                else ['serviceSubnet(' ~ k8s_service_subnet ~ ') 와 겹치는 라우트가 있다.'])
+            + ([] if 'NetworkManager] active=active' not in node_report.stdout
+                else ['NetworkManager 동작 중. cali*/vxlan.calico 인터페이스 예외 설정이 필요할 수 있다.'])
+            + ([] if 'Status: active' not in node_report.stdout
+                else ['ufw 활성 상태. 6443/2379-2380/10250/10256/30000-32767/4789udp 개방 필요.'])
+            + ([] if ansible_facts['swaptotal_mb'] | int == 0
+                else ['swap 이 있다. 설치 시 swapoff + fstab 주석 처리가 수행된다.'])
+            + ([] if '기존 k8s 없음' in node_report.stdout
+                else ['/etc/kubernetes 가 이미 존재한다. 기존 클러스터 흔적 확인 필요.'])
+          }}
