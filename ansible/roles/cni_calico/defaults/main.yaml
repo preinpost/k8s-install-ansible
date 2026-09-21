@@ -15,3 +15,11 @@ calico_encapsulation: VXLAN
 # tailscale 과 함께 쓸 때 fwmark 충돌을 피하기 위한 설정
 # (tailscale_enabled 가 true 일 때만 매니페스트에 주입된다)
 calico_tailscale_iptables_mark_mask: "0xff00ff00"
+
+# 노드 IP 자동감지 방식 (IP_AUTODETECTION_METHOD)
+# 빈 값이면 Calico 기본값 first-found 를 그대로 쓴다.
+# NIC 가 여러 개인 노드에서는 first-found 가 엉뚱한 인터페이스를 고를 수 있고,
+# kubelet 의 node-ip 와 불일치하면 노드 간 라우팅이 깨진다.
+# 그럴 땐 노드망을 명시한다. 예: "cidr=10.0.0.0/24"
+# (다른 값: interface=eth.*, skip-interface=..., can-reach=8.8.8.8, kubernetes-internal-ip)
+calico_ip_autodetection_method: ""

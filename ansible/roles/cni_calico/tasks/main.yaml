@@ -46,6 +46,16 @@
         label: "CALICO_IPV4POOL_{{ item.key }}={{ item.value }}"
 
 
+    # NIC 가 여러 개인 노드에서 Calico 기본값(first-found)은 엉뚱한 인터페이스를
+    # 고를 수 있고, kubelet node-ip 와 어긋나면 노드 간 라우팅이 깨진다.
+    - name: IP_AUTODETECTION_METHOD 설정 ({{ calico_ip_autodetection_method }})
+      ansible.builtin.replace:
+        path: "{{ calico_manifest_path }}"
+        regexp: '((\n[ ]+)- name: IP\n[ ]+value: "autodetect")'
+        replace: '\g<1>\g<2>- name: IP_AUTODETECTION_METHOD\g<2>  value: "{{ calico_ip_autodetection_method }}"'
+      when: calico_ip_autodetection_method | default('', true) | length > 0
+
+
     # tailscale 과 Calico 가 같은 fwmark 비트를 쓰면 트래픽이 끊긴다
     - name: tailscale 공존용 FELIX_IPTABLESMARKMASK 주입
       ansible.builtin.replace:
