@@ -1,24 +1,56 @@
-- name: containerd config.toml 생성
+# containerd 2.x 는 config version 3 을 사용하고 CRI 플러그인 이름도
+# io.containerd.grpc.v1.cri -> io.containerd.cri.v1.{runtime,images} 로 바뀌었다.
+# 하드코딩한 toml 대신 설치된 containerd 가 만들어 주는 기본 설정을 받아서
+# 필요한 값만 치환하면 1.x / 2.x 양쪽에서 동작한다.
+- name: containerd 설정
   become: true
-  copy:
-    dest: /etc/containerd/config.toml
-    content: |
-      version = 2
+  block:
+    - name: containerd 버전 확인
+      ansible.builtin.command: containerd --version
+      register: containerd_version
+      changed_when: false
 
-      [plugins]
-        [plugins."io.containerd.grpc.v1.cri"]
-          [plugins."io.containerd.grpc.v1.cri".containerd]
-            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
-              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-                runtime_type = "io.containerd.runc.v2"
-                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-                  SystemdCgroup = true
-            [plugins."io.containerd.grpc.v1.cri".registry]
-              config_path = "/etc/containerd/certs.d"
+    - name: containerd 버전 출력
+      ansible.builtin.debug:
+        msg: "{{ containerd_version.stdout }}"
 
-- name: Enable and restart Containerd
-  become: true
-  systemd:
-    name: containerd
-    enabled: yes
-    state: restarted
+    - name: /etc/containerd, /etc/containerd/certs.d 디렉터리 생성
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/containerd
+        - /etc/containerd/certs.d
+
+    - name: containerd 기본 설정 생성
+      ansible.builtin.command: containerd config default
+      register: containerd_default_config
+      changed_when: false
+
+    - name: containerd config.toml 작성 (SystemdCgroup, registry certs.d 적용)
+      ansible.builtin.copy:
+        dest: /etc/containerd/config.toml
+        mode: '0644'
+        content: |
+          {{ containerd_default_config.stdout
+             | regex_replace('SystemdCgroup = false', 'SystemdCgroup = true')
+             | regex_replace("(registry\]\n\s*config_path = )(''|\"\")", "\g<1>'/etc/containerd/certs.d'") }}
+      register: containerd_config
+
+    - name: containerd 재시작
+      ansible.builtin.systemd_service:
+        name: containerd
+        enabled: true
+        state: restarted
+      when: containerd_config is changed
+
+    - name: cgroup driver 가 systemd 로 적용됐는지 확인
+      ansible.builtin.shell: |
+        set -o pipefail
+        grep -c 'SystemdCgroup = true' /etc/containerd/config.toml
+      args:
+        executable: /bin/bash
+      register: systemd_cgroup_check
+      changed_when: false
+      failed_when: systemd_cgroup_check.stdout | int < 1

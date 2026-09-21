@@ -1,18 +1,51 @@
+# node_ip 가 없으면 ansible_host 를 쓴다.
+# (SSH 주소와 클러스터 내부 IP 가 다른 환경을 위한 분리)
+- name: 컨트롤플레인 정보 설정
+  ansible.builtin.set_fact:
+    controlplane_hostname: "{{ hostvars[groups['controlplane_group'][0]].hostname }}"
+    controlplane_ip: >-
+      {{ hostvars[groups['controlplane_group'][0]].node_ip
+         | default(hostvars[groups['controlplane_group'][0]].ansible_host) }}
+
+
+# kubeadm.k8s.io/v1beta3 는 kubeadm v1.31 에서 deprecated 되었고
+# v1beta4 부터 extraArgs / kubeletExtraArgs 가 map 이 아니라
+# {name, value} 리스트 형식으로 바뀌었다.
 - name: kubeadm용 커스텀 config 파일 생성
   become: true
-  copy:
+  ansible.builtin.copy:
     dest: /tmp/kubeadm-config.yaml
+    mode: '0600'
     content: |
-      apiVersion: kubeadm.k8s.io/v1beta3
+      apiVersion: kubeadm.k8s.io/v1beta4
+      kind: InitConfiguration
+      localAPIEndpoint:
+        advertiseAddress: "{{ controlplane_ip }}"
+        bindPort: {{ k8s_api_server_port }}
+      nodeRegistration:
+        criSocket: "{{ k8s_cri_socket }}"
+        kubeletExtraArgs:
+          - name: node-ip
+            value: "{{ controlplane_ip }}"
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta4
       kind: ClusterConfiguration
-
       kubernetesVersion: "{{ k8s_install_version_semver }}"
-      controlPlaneEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}"
+      controlPlaneEndpoint: "{{ controlplane_hostname }}:{{ k8s_api_server_port }}"
       apiServer:
-        extraArgs:
-          advertise-address: "{{ hostvars[groups['controlplane_group'][0]].ansible_host }}"
         certSANs:
-          - "{{ hostvars[groups['controlplane_group'][0]].hostname }}"
-          - "{{ hostvars[groups['controlplane_group'][0]].ansible_host }}"
+          - "{{ controlplane_hostname }}"
+          - "{{ controlplane_ip }}"
       networking:
-        podSubnet: "172.16.0.0/16"
+        podSubnet: "{{ k8s_pod_subnet }}"
+        serviceSubnet: "{{ k8s_service_subnet }}"
+      ---
+      apiVersion: kubelet.config.k8s.io/v1beta1
+      kind: KubeletConfiguration
+      cgroupDriver: systemd
+
+
+- name: kubeadm config 유효성 검사
+  become: true
+  ansible.builtin.command: kubeadm config validate --config /tmp/kubeadm-config.yaml
+  changed_when: false

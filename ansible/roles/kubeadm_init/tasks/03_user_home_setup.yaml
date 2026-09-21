@@ -1,15 +1,21 @@
+# ansible_user 를 그대로 /home/<user> 로 가정하면 홈 경로가 다른 환경에서 깨진다
+# (예: lima VM 은 홈이 /home/<user>.guest)
 - name: user kubeconfig setup
   become: true
   block:
-    - name: Make sure .kube directory exists
-      file:
-        path: /home/{{ ansible_user }}/.kube
+    - name: .kube 디렉터리 생성
+      ansible.builtin.file:
+        path: "{{ ansible_facts['user_dir'] }}/.kube"
         state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: 0700
+        owner: "{{ ansible_facts['user_id'] }}"
+        group: "{{ ansible_facts['user_gid'] }}"
+        mode: '0700'
 
-    - name: Copy kubeconfig to ansible_user home
-      shell: |
-        cp /etc/kubernetes/admin.conf /home/{{ ansible_user }}/.kube/config
-        chown {{ ansible_user }}:{{ ansible_user }} /home/{{ ansible_user }}/.kube/config
+    - name: admin.conf 를 사용자 홈으로 복사
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ ansible_facts['user_dir'] }}/.kube/config"
+        remote_src: true
+        owner: "{{ ansible_facts['user_id'] }}"
+        group: "{{ ansible_facts['user_gid'] }}"
+        mode: '0600'

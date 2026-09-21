@@ -1,77 +1,108 @@
 - name: 워커 노드 kubeadm join 전체 작업
   when: groups['worker_group'] is defined and groups['worker_group'] | length > 0
   block:
-    - name: kubeadm join 토큰 생성
+    # openssl 파이프라인으로 CA 해시를 뽑던 방식은 RSA CA 전제였다.
+    # (v1beta4 의 encryptionAlgorithm 으로 ECDSA CA 를 쓰면 깨진다)
+    # kubeadm 이 직접 만들어 주는 join 명령에서 토큰/해시를 파싱한다.
+    - name: join 토큰 및 CA 해시 생성
       become: true
-      shell: kubeadm token create
-      register: join_token
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command
+      changed_when: true
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       run_once: true
 
-    - name: CA 인증서 해시 가져오기
-      become: true
-      shell: openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
-      register: ca_cert_hash
-      delegate_to: "{{ groups['controlplane_group'][0] }}"
-      run_once: true
+    - name: 토큰 / CA 해시 파싱
+      ansible.builtin.set_fact:
+        join_token: "{{ join_command.stdout | regex_search('--token\\s+(\\S+)', '\\1') | first }}"
+        join_ca_hash: "{{ join_command.stdout | regex_search('--discovery-token-ca-cert-hash\\s+(\\S+)', '\\1') | first }}"
 
     - name: kubeadm join용 config 파일 생성
       become: true
-      copy:
+      ansible.builtin.copy:
         dest: /tmp/kubeadm-join-config.yaml
+        mode: '0600'
         content: |
-          apiVersion: kubeadm.k8s.io/v1beta3
+          apiVersion: kubeadm.k8s.io/v1beta4
           kind: JoinConfiguration
           discovery:
             bootstrapToken:
-              token: "{{ join_token.stdout }}"
-              apiServerEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}:6443"
+              token: "{{ join_token }}"
+              apiServerEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}:{{ k8s_api_server_port }}"
               caCertHashes:
-                - "sha256:{{ ca_cert_hash.stdout }}"
+                - "{{ join_ca_hash }}"
           nodeRegistration:
+            criSocket: "{{ k8s_cri_socket }}"
             kubeletExtraArgs:
-              node-ip: "{{ ansible_host }}"
+              - name: node-ip
+                value: "{{ node_ip | default(ansible_host) }}"
 
+    - name: join config 유효성 검사
+      become: true
+      ansible.builtin.command: kubeadm config validate --config /tmp/kubeadm-join-config.yaml
+      changed_when: false
+
+    - name: 이미 클러스터에 join 되어 있는지 확인
+      become: true
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    # 이미 join 된 노드를 재실행하면 join 이 실패 -> rescue 에서 reset 까지 돌아가므로
+    # kubelet.conf 가 없을 때만 수행한다.
     - block:
         - name: 워커에서 join 명령어 실행 (1차)
           become: true
-          shell: kubeadm join --config /tmp/kubeadm-join-config.yaml
+          ansible.builtin.command: kubeadm join --config /tmp/kubeadm-join-config.yaml
+      when: not kubelet_conf.stat.exists
       rescue:
         - name: join 실패 시 kubeadm reset 실행
           become: true
-          shell: kubeadm reset -f
+          ansible.builtin.command: kubeadm reset -f
           ignore_errors: true
+
         - name: 워커에서 join 명령어 실행 (2차)
           become: true
-          shell: kubeadm join --config /tmp/kubeadm-join-config.yaml
+          ansible.builtin.command: kubeadm join --config /tmp/kubeadm-join-config.yaml
 
-    - name: 워커 노드가 Ready 또는 NotReady 상태가 될 때까지 대기
+    # jsonpath 를 command 모듈에 넘기면 인자 분리 과정에서 따옴표가 벗겨진다.
+    # kubectl wait 는 공백/따옴표가 없어 그럴 일이 없고 의도도 더 명확하다.
+    - name: 워커 노드가 API 서버에 등록될 때까지 대기
       become: false
-      shell: kubectl get node {{ ansible_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      ansible.builtin.command: >-
+        kubectl wait --for=create node/{{ ansible_facts['hostname'] }} --timeout=300s
       delegate_to: "{{ groups['controlplane_group'][0] }}"
-      register: node_status
-      until: node_status.stdout == "True" or node_status.stdout == "False"
-      retries: 30
-      delay: 10
+      changed_when: false
+
+    - name: 워커 노드가 Ready 가 될 때까지 대기
+      become: false
+      ansible.builtin.command: >-
+        kubectl wait --for=condition=Ready node/{{ ansible_facts['hostname'] }} --timeout=300s
+      delegate_to: "{{ groups['controlplane_group'][0] }}"
+      changed_when: false
 
     - name: 워커 노드에 worker 역할 라벨 추가
       become: false
-      shell: kubectl label node {{ ansible_facts['hostname'] }} node-role.kubernetes.io/worker=worker --overwrite
+      ansible.builtin.command: >-
+        kubectl label node {{ ansible_facts['hostname'] }}
+        node-role.kubernetes.io/worker=worker --overwrite
       delegate_to: "{{ groups['controlplane_group'][0] }}"
+      changed_when: true
 
     - name: 워커 노드 상태 확인
       become: false
-      shell: kubectl get node {{ ansible_facts['hostname'] }}
+      ansible.builtin.command: "kubectl get node {{ ansible_facts['hostname'] }}"
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       register: worker_node_status
+      changed_when: false
 
     - name: 워커 노드 상태 출력
-      debug:
+      ansible.builtin.debug:
         msg: "{{ worker_node_status.stdout }}"
 
     - name: 워커의 join config 파일 삭제
       become: true
-      file:
+      ansible.builtin.file:
         path: /tmp/kubeadm-join-config.yaml
         state: absent
       ignore_errors: true

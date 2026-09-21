@@ -2,7 +2,9 @@
   become: true
   block:
     - name: Reset kubeadm
-      command: kubeadm reset --force
+      ansible.builtin.command: >-
+        kubeadm reset --force
+        --cri-socket {{ k8s_cri_socket | default('unix:///run/containerd/containerd.sock') }}
       ignore_errors: true
 
     - name: Remove CNI network config
@@ -30,6 +32,16 @@
     - name: Delete docker0 bridge if exists
       command: ip link delete docker0
       ignore_errors: true
+
+    - name: Delete leftover CNI interfaces
+      command: "ip link delete {{ item }}"
+      loop:
+        - cni0
+        - flannel.1
+        - vxlan.calico
+        - tunl0
+      failed_when: false
+      changed_when: false
 
     - name: Restart containerd if present
       service:

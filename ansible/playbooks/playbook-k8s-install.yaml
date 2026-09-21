@@ -8,20 +8,21 @@
     - roles/install_k8s_components
 
 
+# 인벤토리마다 호스트 이름이 다를 수 있으니 그룹의 첫 번째 노드를 지정한다
 - name: ControlPlane Init
-  hosts: controlplane_1
+  hosts: controlplane_group[0]
   roles:
     - roles/kubeadm_init
 
 
 # - name: CNI Install (Flannel)
-#   hosts: controlplane_1
+#   hosts: controlplane_group[0]
 #   roles:
 #     - roles/cni_flannel
 
 
 - name: CNI Install (Calico)
-  hosts: controlplane_1
+  hosts: controlplane_group[0]
   roles:
     - roles/cni_calico
 

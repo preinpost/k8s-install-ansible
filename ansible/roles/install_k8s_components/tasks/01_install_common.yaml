@@ -1,42 +1,38 @@
-- name: apt update
+- name: 필수 패키지 설치
   become: true
-  apt:
-    update_cache: yes
-
-
-- name: Install packages
-  become: true
-  apt:
-    name: "{{ packages }}"
-    state: present
-    update_cache: yes
-  vars:
-    packages:
+  ansible.builtin.apt:
+    name:
       - apt-transport-https
       - ca-certificates
       - curl
-      - gpg
+      - gnupg
+      # deb822_repository 모듈이 필요로 함
+      - python3-debian
+    state: present
+    update_cache: true
+  register: apt_result
   retries: 5
   delay: 15
   until: apt_result is succeeded
-  register: apt_result
 
 
-- name: Get Ubuntu codename
-  command: lsb_release -cs
+- name: /etc/apt/keyrings 디렉터리 생성
   become: true
-  register: ubuntu_codename
-
-
-- name: Ensure /etc/apt/keyrings directory exists
-  become: true
-  file:
+  ansible.builtin.file:
     path: /etc/apt/keyrings
     state: directory
     mode: '0755'
 
 
-- name: Download Docker GPG key
+- name: deb 아키텍처 변수 설정
+  ansible.builtin.set_fact:
+    deb_arch: >-
+      {{ 'amd64' if ansible_facts['architecture'] == 'x86_64'
+         else ('arm64' if ansible_facts['architecture'] in ['aarch64', 'arm64']
+         else ansible_facts['architecture'] | lower) }}
+
+
+- name: Docker GPG key 다운로드
   become: true
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg
@@ -44,154 +40,172 @@
     mode: '0644'
 
 
-- name: Set Docker architecture variable
+# 예전 버전에서 만들던 one-line(.list) 저장소 파일 제거
+# (deb822(.sources) 로 옮기면서 중복 등록되는 것 방지)
+- name: 레거시 one-line apt 저장소 파일 제거
   become: true
-  set_fact:
-    docker_arch: >-
-      {% if ansible_facts['architecture'] == 'x86_64' %}amd64{% elif ansible_facts['architecture'] in ['aarch64', 'arm64'] %}arm64{% else %}{{ ansible_facts['architecture'] | lower }}{% endif %}
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ item }}"
+    state: absent
+  loop:
+    - docker.list
+    - kubernetes.list
 
 
-- name: Add Docker apt repository
+- name: Docker apt 저장소 추가
   become: true
-  ansible.builtin.apt_repository:
-    repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
-    filename: "docker"
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "https://download.docker.com/linux/ubuntu"
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: [stable]
+    architectures: ["{{ deb_arch }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
     state: present
-    update_cache: yes
+    enabled: true
+  register: docker_repo
 
 
-- name: Download Kubernetes GPG key (ASCII armored)
+# 저장소 경로와 서명 키는 마이너 버전마다 분리되어 있으므로
+# k8s_install_version 을 그대로 사용한다. (버전을 올리면 키도 같이 갱신됨)
+- name: Kubernetes GPG key 다운로드 ({{ k8s_install_version }})
   become: true
   ansible.builtin.get_url:
-    url: https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key
+    url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_install_version }}/deb/Release.key"
     dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
     mode: '0644'
+    force: true
 
 
-- name: Convert Kubernetes GPG key to dearmored format
+# pkgs.k8s.io 는 flat repository 라 suites 가 "/" 이고 components 는 없다
+- name: Kubernetes apt 저장소 추가
   become: true
-  shell: |
-    gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /etc/apt/keyrings/kubernetes-apt-keyring.asc
-  args:
-    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-
-- name: Add Kubernetes apt repository
-  become: true
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ k8s_install_version }}/deb/ /"
-    filename: "kubernetes"
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "https://pkgs.k8s.io/core:/stable:/{{ k8s_install_version }}/deb/"
+    suites: ["/"]
+    signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.asc
     state: present
-    update_cache: yes
+    enabled: true
+  register: kubernetes_repo
 
 
-- name: Install containerd
+- name: apt 캐시 갱신
   become: true
-  apt:
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_repo is changed or kubernetes_repo is changed
+
+
+- name: containerd 설치
+  become: true
+  ansible.builtin.apt:
     name: containerd.io
     state: present
-    update_cache: yes
+    update_cache: true
 
 
-- name: Enable and restart Containerd
+- name: containerd 서비스 활성화
   become: true
-  systemd:
+  ansible.builtin.systemd_service:
     name: containerd
-    enabled: yes
-    state: restarted
+    enabled: true
+    state: started
 
 
-- name: Install kubeadm, kubelet, kubectl
+# 재실행(버전 업그레이드) 시 hold 때문에 설치가 막히지 않도록 먼저 해제한다.
+# dpkg_selections 는 dpkg 가 모르는 패키지에는 쓸 수 없으므로
+# (최초 설치 시 에러) 이미 설치된 것만 대상으로 한다.
+- name: 이미 설치된 Kubernetes 패키지 확인
   become: true
-  apt:
+  ansible.builtin.shell: "dpkg-query -W -f='${Package}\n' kubelet kubeadm kubectl 2>/dev/null || true"
+  register: installed_k8s_packages
+  changed_when: false
+
+
+- name: Kubernetes 패키지 hold 해제
+  become: true
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: install
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  when: item in installed_k8s_packages.stdout_lines
+
+
+- name: kubeadm, kubelet, kubectl 설치
+  become: true
+  ansible.builtin.apt:
     name:
-      - kubeadm={{ kubeadm_version }}
-      - kubelet={{ kubelet_version }}
-      - kubectl={{ kubectl_version }}
+      - "kubeadm={{ kubeadm_version }}"
+      - "kubelet={{ kubelet_version }}"
+      - "kubectl={{ kubectl_version }}"
     state: present
-    update_cache: yes
+    update_cache: true
+    allow_change_held_packages: true
 
 
-- name: Hold Kubernetes packages at current version
+- name: Kubernetes 패키지 버전 고정(hold)
   become: true
-  apt:
-    name:
-      - kubelet={{ kubelet_version }}
-      - kubeadm={{ kubeadm_version }}
-      - kubectl={{ kubectl_version }}
-    state: present
-    update_cache: yes
-    allow_unauthenticated: yes
-    force: yes
-    autoremove: no
-    install_recommends: no
-    dpkg_options: "--force-confdef --force-confold"
-  register: kubernetes_install
-
-
-- name: Mark Kubernetes packages on hold
-  become: true
-  shell: |
-    apt-mark hold kubelet kubeadm kubectl
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
 
 
 - name: Swap 비활성화 및 fstab 주석 처리
   become: true
   block:
-    - name: Disable swap
-      command: swapoff -a
+    - name: Swap 즉시 비활성화
+      ansible.builtin.command: swapoff -a
+      when: ansible_facts['swaptotal_mb'] | default(0) | int > 0
+      changed_when: true
 
-
-    - name: Remove swap entry from /etc/fstab
-      replace:
+    - name: /etc/fstab 의 swap 항목 주석 처리
+      ansible.builtin.replace:
         path: /etc/fstab
-        regexp: '^([^#].*\\sswap\\s)'
-        replace: '#\\1'
+        regexp: '^(\s*[^#\s]\S*\s+\S*\s*swap\s+.*)$'
+        replace: '# \1'
 
 
-- name: iptables 및 커널/시스템 설정
+- name: 커널 모듈 및 sysctl 설정
   become: true
   block:
-    - name: br_netfilter 커널 모듈 로드
-      shell: modprobe br_netfilter
+    - name: 커널 모듈 영구 적용 (overlay, br_netfilter)
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        mode: '0644'
+        content: |
+          overlay
+          br_netfilter
 
-
-    - name: br_netfilter 모듈 영구 적용
-      shell: echo "br_netfilter" | tee /etc/modules-load.d/k8s.conf
-
+    - name: 커널 모듈 즉시 로드
+      ansible.builtin.command: "modprobe {{ item }}"
+      loop:
+        - overlay
+        - br_netfilter
+      changed_when: false
 
     - name: k8s용 sysctl 설정 파일 생성
-      copy:
+      ansible.builtin.copy:
         dest: /etc/sysctl.d/k8s.conf
+        mode: '0644'
         content: |
+          net.bridge.bridge-nf-call-iptables  = 1
           net.bridge.bridge-nf-call-ip6tables = 1
-          net.bridge.bridge-nf-call-iptables = 1
-
-
-    - name: net.ipv4.ip_forward=1 주석 해제
-      lineinfile:
-        path: /etc/sysctl.conf
-        regexp: '^#net\.ipv4\.ip_forward=1'
-        line: 'net.ipv4.ip_forward=1'
-
-
-    - name: net.ipv6.conf.all.forwarding=1 주석 해제
-      lineinfile:
-        path: /etc/sysctl.conf
-        regexp: '^#net\.ipv4\.ip_forward=1'
-        line: 'net.ipv6.conf.all.forwarding=1'
-
+          net.ipv4.ip_forward                 = 1
+          net.ipv6.conf.all.forwarding        = 1
+          vm.max_map_count                    = 262144
+      register: k8s_sysctl_conf
 
     - name: sysctl 설정 적용
-      shell: sysctl --system
-
-
-    - name: vm.max_map_count 설정 추가
-      lineinfile:
-        path: /etc/sysctl.conf
-        line: 'vm.max_map_count=262144'
-        insertafter: EOF
-
-
-    - name: sysctl -p 적용
-      shell: sysctl -p
+      ansible.builtin.command: sysctl --system
+      when: k8s_sysctl_conf is changed
+      changed_when: true

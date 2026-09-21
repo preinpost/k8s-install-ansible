@@ -1,5 +1,22 @@
 - name: kubeadm init
   become: true
-  shell: kubeadm init --config=/tmp/kubeadm-config.yaml
+  ansible.builtin.command: kubeadm init --config=/tmp/kubeadm-config.yaml
   args:
     creates: /etc/kubernetes/admin.conf
+  register: kubeadm_init_result
+
+
+- name: kubeadm init 결과 출력
+  ansible.builtin.debug:
+    msg: "{{ kubeadm_init_result.stdout_lines | default(['이미 초기화된 클러스터입니다.']) }}"
+
+
+- name: kube-apiserver 가 응답할 때까지 대기
+  become: true
+  ansible.builtin.command: >-
+    kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw=/readyz
+  register: apiserver_readyz
+  until: apiserver_readyz.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
