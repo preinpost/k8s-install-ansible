@@ -1,9 +1,25 @@
-- name: '마스터 노드를 /etc/hosts에 등록'
-  blockinfile:
+# 클러스터 내부 통신은 IP 가 아니라 호스트명으로 한다.
+# 각 노드가 CP 호스트명과 API 엔드포인트 이름을 해석할 수 있어야 하므로 /etc/hosts 에 등록한다.
+#
+# k8s_controlplane_endpoint    : API 엔드포인트 이름 (예: k8s-api). 미지정 시 CP 호스트명 사용
+# k8s_controlplane_endpoint_ip : 그 이름이 가리킬 주소. 미지정 시 CP[0] 의 IP.
+#                                HA 전환 시 이 값만 VIP 로 바꾸면 된다.
+- name: '컨트롤플레인 / API 엔드포인트를 /etc/hosts에 등록'
+  vars:
+    cp_hostnames: "{{ groups['controlplane_group'] | map('extract', hostvars, 'hostname') | list }}"
+    cp_endpoint_name: "{{ k8s_controlplane_endpoint | default('', true) }}"
+    cp_endpoint_ip: >-
+      {{ k8s_controlplane_endpoint_ip
+         | default(hostvars[groups['controlplane_group'][0]].node_ip
+                   | default(hostvars[groups['controlplane_group'][0]].ansible_host), true) }}
+  ansible.builtin.blockinfile:
     path: /etc/hosts
     block: |
       {% for host in groups['controlplane_group'] %}
       {{ hostvars[host]['node_ip'] | default(hostvars[host]['ansible_host']) }} {{ hostvars[host]['hostname'] }}
       {% endfor %}
+      {% if cp_endpoint_name | length > 0 and cp_endpoint_name not in cp_hostnames %}
+      {{ cp_endpoint_ip }} {{ cp_endpoint_name }}
+      {% endif %}
     marker: "# {mark} ANSIBLE MANAGED BLOCK - Controlplane hosts"
     backup: yes

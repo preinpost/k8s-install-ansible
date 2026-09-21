@@ -1,5 +1,9 @@
 - name: 워커 노드 kubeadm join 전체 작업
   when: groups['worker_group'] is defined and groups['worker_group'] | length > 0
+  # k8s 노드명은 인벤토리의 hostname 값이다 (hostname_change 롤이 OS 호스트명으로 설정).
+  # ansible_facts['hostname'] 은 FQDN 의 첫 점 앞부분만 주므로 쓰지 않는다.
+  vars:
+    k8s_node_name: "{{ hostname | default(ansible_facts['hostname'], true) }}"
   block:
     # openssl 파이프라인으로 CA 해시를 뽑던 방식은 RSA CA 전제였다.
     # (v1beta4 의 encryptionAlgorithm 으로 ECDSA CA 를 쓰면 깨진다)
@@ -28,10 +32,13 @@
           discovery:
             bootstrapToken:
               token: "{{ join_token }}"
-              apiServerEndpoint: "{{ hostvars[groups['controlplane_group'][0]].hostname }}:{{ k8s_api_server_port }}"
+              apiServerEndpoint: "{{ k8s_controlplane_endpoint | default(hostvars[groups['controlplane_group'][0]].hostname, true) }}:{{ k8s_api_server_port }}"
               caCertHashes:
                 - "{{ join_ca_hash }}"
           nodeRegistration:
+            # 노드명을 명시한다 (FQDN 호스트명 환경에서 ansible_facts.hostname 은
+            # 첫 점 앞부분만 반환하므로 그대로 쓰면 어긋난다)
+            name: "{{ k8s_node_name }}"
             criSocket: "{{ k8s_cri_socket }}"
             kubeletExtraArgs:
               - name: node-ip
@@ -70,28 +77,28 @@
     - name: 워커 노드가 API 서버에 등록될 때까지 대기
       become: false
       ansible.builtin.command: >-
-        kubectl wait --for=create node/{{ ansible_facts['hostname'] }} --timeout=300s
+        kubectl wait --for=create node/{{ k8s_node_name }} --timeout=300s
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       changed_when: false
 
     - name: 워커 노드가 Ready 가 될 때까지 대기
       become: false
       ansible.builtin.command: >-
-        kubectl wait --for=condition=Ready node/{{ ansible_facts['hostname'] }} --timeout=300s
+        kubectl wait --for=condition=Ready node/{{ k8s_node_name }} --timeout=300s
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       changed_when: false
 
     - name: 워커 노드에 worker 역할 라벨 추가
       become: false
       ansible.builtin.command: >-
-        kubectl label node {{ ansible_facts['hostname'] }}
+        kubectl label node {{ k8s_node_name }}
         node-role.kubernetes.io/worker=worker --overwrite
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       changed_when: true
 
     - name: 워커 노드 상태 확인
       become: false
-      ansible.builtin.command: "kubectl get node {{ ansible_facts['hostname'] }}"
+      ansible.builtin.command: "kubectl get node {{ k8s_node_name }}"
       delegate_to: "{{ groups['controlplane_group'][0] }}"
       register: worker_node_status
       changed_when: false

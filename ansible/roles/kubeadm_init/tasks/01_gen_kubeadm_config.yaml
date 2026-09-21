@@ -8,6 +8,32 @@
          | default(hostvars[groups['controlplane_group'][0]].ansible_host) }}
 
 
+# controlPlaneEndpoint 는 init 이후 변경이 매우 어렵다(전 노드 kubeconfig/인증서 재발급).
+# 특정 노드 이름이 아니라 역할 중립적인 이름을 쓰면
+# 나중에 HA 로 갈 때 그 이름이 가리키는 주소만 VIP 로 바꾸면 된다.
+# k8s_controlplane_endpoint 가 없으면 기존 동작대로 CP 호스트명을 쓴다.
+- name: 컨트롤플레인 엔드포인트 및 certSANs 구성
+  ansible.builtin.set_fact:
+    controlplane_endpoint: >-
+      {{ k8s_controlplane_endpoint | default(controlplane_hostname, true) }}
+    apiserver_cert_sans: >-
+      {{ ([k8s_controlplane_endpoint | default(controlplane_hostname, true)]
+          + groups['controlplane_group']
+            | map('extract', hostvars, 'hostname') | list
+          + groups['controlplane_group']
+            | map('extract', hostvars)
+            | map(attribute='node_ip', default='') | select | list
+          + (k8s_apiserver_extra_sans | default([]))
+         ) | unique | list }}
+
+
+- name: 엔드포인트 / certSANs 확인
+  ansible.builtin.debug:
+    msg:
+      - "controlPlaneEndpoint : {{ controlplane_endpoint }}:{{ k8s_api_server_port }}"
+      - "certSANs             : {{ apiserver_cert_sans }}"
+
+
 # kubeadm.k8s.io/v1beta3 는 kubeadm v1.31 에서 deprecated 되었고
 # v1beta4 부터 extraArgs / kubeletExtraArgs 가 map 이 아니라
 # {name, value} 리스트 형식으로 바뀌었다.
@@ -23,6 +49,9 @@
         advertiseAddress: "{{ controlplane_ip }}"
         bindPort: {{ k8s_api_server_port }}
       nodeRegistration:
+        # 노드명을 명시한다. 생략하면 OS 호스트명을 따라가는데,
+        # FQDN 을 쓰는 환경에서 짧은 이름과 섞일 여지를 없앤다.
+        name: "{{ controlplane_hostname }}"
         criSocket: "{{ k8s_cri_socket }}"
         kubeletExtraArgs:
           - name: node-ip
@@ -31,11 +60,9 @@
       apiVersion: kubeadm.k8s.io/v1beta4
       kind: ClusterConfiguration
       kubernetesVersion: "{{ k8s_install_version_semver }}"
-      controlPlaneEndpoint: "{{ controlplane_hostname }}:{{ k8s_api_server_port }}"
+      controlPlaneEndpoint: "{{ controlplane_endpoint }}:{{ k8s_api_server_port }}"
       apiServer:
-        certSANs:
-          - "{{ controlplane_hostname }}"
-          - "{{ controlplane_ip }}"
+        certSANs: {{ apiserver_cert_sans | to_json }}
       networking:
         podSubnet: "{{ k8s_pod_subnet }}"
         serviceSubnet: "{{ k8s_service_subnet }}"
