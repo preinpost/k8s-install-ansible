@@ -1,13 +1,30 @@
 - name: flannel CNI 설치
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
   block:
     - name: /tmp에 kube-flannel.yml 파일 다운로드
-      become: false
-      shell: curl -L https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml -o /tmp/kube-flannel.yml
+      ansible.builtin.get_url:
+        url: https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+        dest: /tmp/kube-flannel.yml
+        mode: '0644'
 
-    - name: /tmp/kube-flannel.yml의 네트워크 대역을 192.168.0.0/16으로 변경
-      become: false
-      shell: sed -i 's/10.244.0.0\/16/192.168.0.0\/16/g' /tmp/kube-flannel.yml
+    # flannel 기본 대역(10.244.0.0/16) 을 kubeadm 에 설정한 podSubnet 으로 맞춘다
+    - name: kube-flannel.yml 의 네트워크 대역을 podSubnet 으로 변경
+      ansible.builtin.replace:
+        path: /tmp/kube-flannel.yml
+        regexp: '10\.244\.0\.0/16'
+        replace: "{{ k8s_pod_subnet }}"
 
-    - name: /tmp/kube-flannel.yml 파일을 클러스터에 적용
-      become: false
-      shell: kubectl apply -f /tmp/kube-flannel.yml
+    - name: kube-flannel.yml 파일을 클러스터에 적용
+      ansible.builtin.command: kubectl apply -f /tmp/kube-flannel.yml
+      changed_when: true
+
+    - name: flannel 데몬셋이 기동될 때까지 대기
+      ansible.builtin.command: >-
+        kubectl -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=300s
+      register: flannel_rollout
+      changed_when: false
+      retries: 3
+      delay: 20
+      until: flannel_rollout.rc == 0

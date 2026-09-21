@@ -1,2 +1,17 @@
 calico_manifest_name: calico-manifest
-calico_manifest_version: v3.33.3
+
+# Calico v3.32 는 k8s 1.34 ~ 1.36 에 대해 테스트된 버전이다.
+# files/ 아래 매니페스트는 upstream calico.yaml 원본 그대로이고,
+# 커스터마이징은 tasks 에서 변수로 적용한다. (버전 올릴 때 파일만 교체하면 됨)
+#   upstream: https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml
+calico_manifest_version: v3.32.2
+
+# Pod 네트워크 캡슐화 방식: VXLAN | IPIP | None
+#   VXLAN : 노드 간 서브넷이 다르거나 IP-in-IP(프로토콜 4)가 막힌 사내망에서 무난
+#   IPIP  : Calico 기본값
+#   None  : 노드가 모두 같은 L2 이고 라우팅이 되는 경우 (오버헤드 없음)
+calico_encapsulation: VXLAN
+
+# tailscale 과 함께 쓸 때 fwmark 충돌을 피하기 위한 설정
+# (tailscale_enabled 가 true 일 때만 매니페스트에 주입된다)
+calico_tailscale_iptables_mark_mask: "0xff00ff00"
